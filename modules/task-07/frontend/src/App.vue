@@ -1,0 +1,38 @@
+<script setup lang="ts">
+import { computed, ref } from 'vue'
+type Finding = { severity: string; line_start: number; title: string; description: string; suggestion: string }
+const source = ref('def binarize(pixel):\n    return 255 if pixel >= threshold else 0\n')
+const loading = ref(false)
+const error = ref('')
+const result = ref<{ summary: string; findings: Finding[] } | null>(null)
+const api = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const count = computed(() => result.value?.findings.length ?? 0)
+async function review() {
+  loading.value = true; error.value = ''; result.value = null
+  try {
+    const response = await fetch(`${api}/api/reviews`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source: source.value, language: 'python' }) })
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.error?.message || '评审请求失败')
+    result.value = data
+  } catch (e) { error.value = e instanceof Error ? e.message : '无法连接评审服务' }
+  finally { loading.value = false }
+}
+</script>
+
+<template>
+  <div class="shell">
+    <aside class="rail"><div class="brand">知</div><div class="rail-icon active">⌘</div><div class="rail-icon">▤</div><div class="rail-icon">⚙</div><div class="avatar">助</div></aside>
+    <main>
+      <header><div><div class="eyebrow">TEACHING ASSISTANT / TASK 07</div><h1>代码智能评审</h1><p>静态建议与代码变化检查 · 学生代码不会在此运行</p></div><span class="badge"><i></i>评审服务在线</span></header>
+      <section class="stats"><article><span>评审模式</span><b>静态分析</b><small>不执行学生提交</small></article><article><span>检查维度</span><b>括号配对 · 未定义名称</b><small>Python 静态检查</small></article><article><span>算法工具</span><b>接口待接入</b><small>仅允许预封装教学算法</small></article></section>
+      <section class="workspace">
+        <div class="panel editor"><div class="panel-head"><div><strong>提交代码</strong><small>本地演示文本 · Python</small></div><span class="file">⌁ submission.py</span></div><textarea v-model="source" spellcheck="false" aria-label="待评审代码"></textarea><div class="editor-foot"><span>静态检查不会运行或导入代码</span><button @click="review" :disabled="loading">{{ loading ? '分析中…' : '✦ 开始评审' }}</button></div></div>
+        <div class="panel result"><div class="panel-head"><div><strong>评审结果</strong><small>仅供教学参考，由教师确认</small></div><span class="count">{{ count }} 条</span></div>
+          <div v-if="error" class="notice error">{{ error }}</div><div v-else-if="!result" class="empty"><div class="spark">✦</div><b>等待开始评审</b><span>提交代码后，建议会显示在这里。</span></div>
+          <div v-else class="findings"><div class="summary">{{ result.summary }}</div><article v-for="(finding, i) in result.findings" :key="i" class="finding"><div class="finding-top"><span :class="['severity', finding.severity]">{{ finding.severity === 'warning' ? '需关注' : '建议' }}</span><span>第 {{ finding.line_start }} 行</span></div><b>{{ finding.title }}</b><p>{{ finding.description }}</p><small>{{ finding.suggestion }}</small></article><div v-if="!count" class="notice">未发现当前规则覆盖的问题。自动检查不能证明代码完全正确。</div></div>
+        </div>
+      </section>
+      <footer>助教工作台 <span>·</span> 代码仅用于静态文本检查，不会发送给外部模型或执行</footer>
+    </main>
+  </div>
+</template>
