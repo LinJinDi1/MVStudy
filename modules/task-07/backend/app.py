@@ -30,11 +30,15 @@ def health():
 
 @app.post("/api/reviews")
 def create_review():
-    body = request.get_json(silent=True) or {}
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"error": {"code": "invalid_json", "message": "请求内容必须是 JSON 对象。"}}), 400
     source = body.get("source")
     language = body.get("language", "python")
     if not isinstance(source, str) or not source.strip():
         return jsonify({"error": {"code": "invalid_source", "message": "source 必须是非空文本。"}}), 400
+    if not isinstance(language, str):
+        return jsonify({"error": {"code": "invalid_language", "message": "language 必须是文本。"}}), 400
     if language not in ALLOWED_LANGUAGES:
         return jsonify({"error": {"code": "unsupported_language", "message": "暂不支持该语言。"}}), 400
     findings = review_source(source, language)
@@ -58,13 +62,18 @@ def get_review(review_id: str):
 
 @app.post("/api/reviews/diff")
 def compare_submissions():
-    body = request.get_json(silent=True) or {}
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"error": {"code": "invalid_json", "message": "请求内容必须是 JSON 对象。"}}), 400
     before, after = body.get("before"), body.get("after")
     if not isinstance(before, str) or not isinstance(after, str):
         return jsonify({"error": {"code": "invalid_diff", "message": "before 和 after 必须是文本。"}}), 400
     diff = list(difflib.unified_diff(before.splitlines(), after.splitlines(), fromfile="提交前", tofile="提交后", lineterm=""))
-    return jsonify({"summary": f"共 {sum(x.startswith('+') and not x.startswith('+++') for x in diff)} 行新增，{sum(x.startswith('-') and not x.startswith('---') for x in diff)} 行删除。",
-                    "diff": diff[:1000]})
+    # The first two lines are file headers. Only inspect change markers after them.
+    changes = diff[2:]
+    added = sum(line.startswith("+") for line in changes)
+    removed = sum(line.startswith("-") for line in changes)
+    return jsonify({"summary": f"共 {added} 行新增，{removed} 行删除。", "diff": diff[:1000]})
 
 
 @app.errorhandler(413)
