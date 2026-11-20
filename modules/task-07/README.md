@@ -18,8 +18,27 @@ docker compose up --build
 
 在浏览器访问 `http://localhost:5173` 打开演示页面，Flask API 使用 8000 端口。
 
-## 后续接入 MVStudy
+## 不使用 Docker（Windows）
 
-- `backend/review_service.py` 提供 `review_source(source, language)`，返回带行号的静态检查建议。该函数依赖 Python 标准库和 Pyflakes，可由团队后端直接调用。
-- `backend/app.py` 保留演示用的 Flask 接口，负责读取请求、调用检查函数和返回结果。
-- 等团队确定后端目录、登录权限和作业提交接口后，再接入教师页面及独立助教入口。现阶段为本地演示，尚未接入统一鉴权或作业存储。
+在**仓库根目录**打开两个终端。终端一启动 API：
+
+```powershell
+py -3.12 -m venv .venv-review
+.\.venv-review\Scripts\python.exe -m pip install -r backend/requirements.txt
+.\.venv-review\Scripts\python.exe modules/task-07/backend/app.py
+```
+
+终端二启动工作台：
+
+```powershell
+npm --prefix frontend ci
+npm --prefix frontend run dev
+```
+
+打开 Vite 打印的本地网址，点击“开始评审”。默认示例的第 2 行会提示 `threshold` 未定义。原前端目录中的 `npm install`、`npm run dev` 和 `npm run build` 也转到同一个工作台。
+
+## 后续开发位置
+
+- [静态规则及 HTTP 接口](../../backend/mvstudy/domains/review/)由 Flask 演示工厂注册。旧的 `backend/review_service.py` 继续导出同一个 `review_source`。
+- [Vue 工作台与请求客户端](../../frontend/src/features/review/)供前端宿主复用。默认开发代理指向本机 8000 端口；独立部署可用 `VITE_API_URL` 指定服务地址。
+- 当前演示使用内存记录，仅供本机使用。[23 号票](../../.scratch/mvstudy/issues/23-private-review.md)负责接入统一身份、保存评审和校验读取权限。

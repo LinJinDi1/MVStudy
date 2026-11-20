@@ -1,3 +1,1 @@
-Flask>=3.0,<4
-Flask-Cors>=4,<6
-pyflakes>=3.4,<4
+-r ../../../backend/requirements.txt
