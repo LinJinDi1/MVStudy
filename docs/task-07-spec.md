@@ -37,6 +37,6 @@
 
 ## Further Notes
 
-起点是已合入 PR #1/#2：文本评审、内存查询、文本 diff 和工作台已存在；正式身份、持久化、作业读取及页面整合从各自的票接续。
+PR #1/#2 的文本评审、内存查询、文本 diff 和 Vue 工作台已整合到前后端的 `review` 域；[独立演示入口](../modules/task-07/README.md)复用该实现。正式身份、持久化、作业读取及教师/独立入口的组装从各自的票接续。
 
 **关联工单（按依赖领取）：** [07 从已有工作台定位裸 except 与未定义名称](../.scratch/mvstudy/issues/07-review-code.md) · [23 登录后找回自己的粘贴评审](../.scratch/mvstudy/issues/23-private-review.md) · [24 从指定作业版本生成静态评审](../.scratch/mvstudy/issues/24-submission-review.md) · [25 从批改页比较参考与学生版本](../.scratch/mvstudy/issues/25-reference-diff.md) · [27 从教师和独立入口使用同一组能力](../.scratch/mvstudy/issues/27-assistant-ui.md)

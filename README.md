@@ -12,7 +12,7 @@
 | `migrations/versions/` | 全平台一条 Alembic 迁移历史；字段或约束的改动与所属业务票一起提交。 |
 | `deploy/` | 整套平台的启动、配置示例和恢复操作，6 号维护。 |
 | `tests/`、`tools/` | 跨模块场景、仓库结构检查及开发工具；单域测试放回该域。 |
-| `modules/task-07/` | 已合入的[独立评审原型](modules/task-07/README.md)，保留原启动方式。07 号票在原型上改规则，23 号票接入正式平台。 |
+| `modules/task-07/` | [评审演示启动入口](modules/task-07/README.md)。原 Compose 和本地启动命令复用正式前后端的 `review` 域；07 号在域内改规则，23 号接统一身份与持久化。 |
 
 ## 九个业务域
 
@@ -50,4 +50,4 @@
 
 无需给每个小功能预建 controller/service/repository 三层。评审时看**是否混入两种会独立变化的职责、同一条规则是否有两个写入点**，而不是看文件行数。
 
-从仓库根运行 `python tools/check_layout.py` 检查文件落点和后端跨域内部导入；规则自身的回归用例运行 `python -m unittest discover -s tests`。首次业务开工、联调及关票条件见[开发约定](docs/development.md)。
+从仓库根运行 `python tools/check_layout.py` 检查文件落点和后端跨域内部导入；在安装了 `backend/requirements.txt` 的环境运行 `python -m unittest discover -s tests` 检查结构和评审入口。首次业务开工、联调及关票条件见[开发约定](docs/development.md)。

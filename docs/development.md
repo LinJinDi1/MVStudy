@@ -36,7 +36,7 @@ Issue tracker: 本地 .scratch/mvstudy/issues/；只执行该 Spec 在 Further N
 
 | 决策 | 执行约定 |
 |---|---|
-| 平台宿主 | Python 3.12 + Flask，单一平台应用工厂按域注册 Blueprint；Vue 3 + TypeScript/Vite 共用路由宿主。01 在现有骨架内接入登录、路由和根级迁移配置。并行票直接在[正式业务域](../README.md#九个业务域)实现和测试；07 号票继续维护已合入的独立原型，23 号票接入正式平台。 |
+| 平台宿主 | Python 3.12 + Flask，按域注册 Blueprint；Vue 3 + TypeScript/Vite 共用宿主。01 接入登录、路由和根级迁移配置。并行票直接在[正式业务域](../README.md#九个业务域)实现和测试；评审演示已使用两端的 review 域，23 号票接入统一身份与持久化。 |
 | 建库与演进 | PostgreSQL 16，SQLAlchemy 2.x Declarative 定义模型、psycopg 3 连接、Alembic 管理一个迁移历史。具体建库、升级、测试与合并规则见[数据库实施约定](database.md#建库升级和测试)。 |
 | 任务与文件 | 3 号用持久 runs 表领取排队任务（行锁 + SKIP LOCKED）和独立计算进程；文件存私有持久卷，经 F1 授权读取。首版这两项无需 Redis。 |
 | 工具与模型 | 6 号用 OpenAI Agents SDK 的单一工具循环及明确工具名；模型地址、名称、密钥由获准环境注入，兼容性在 28 号票验证。5 号以 Sentence-Transformers + pgvector 检索；嵌入模型及视觉供应方按课程授权确定。7 号静态评审完全本地。 |
@@ -55,4 +55,4 @@ Issue tracker: 本地 .scratch/mvstudy/issues/；只执行该 Spec 在 Further N
 | 运行容量、技术栈和目标机 | 共享后端、前端与数据库按下方执行基线。CPU/GPU 并发数、队列容量、运行时限与文件限额由 3/6 号实测后配置；线上启动须取得目标机与网络权限。 | 13/20/30、33；各号提交自己的运行说明 |
 | 正式交付日期 | 以正式通知为准；本表用于安排开发和逐项联调。 | 发起人补入 PRD；最终一次完整成品交付与答辩 |
 
-**7 号原始交付：** [独立原型启动说明](../modules/task-07/README.md) · [静态规则服务](../modules/task-07/backend/review_service.py)。
+**7 号评审工作台：** [启动说明](../modules/task-07/README.md) · [静态规则](../backend/mvstudy/domains/review/review_service.py) · [Vue 工作台](../frontend/src/features/review/ReviewWorkbench.vue)。

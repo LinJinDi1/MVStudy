@@ -1,7 +1,9 @@
 services:
   api:
-    build: ./backend
-    ports: ["8000:8000"]
+    build:
+      context: ../../backend
+      dockerfile: ../modules/task-07/backend/Dockerfile
+    ports: ["127.0.0.1:8000:8000"]
     environment:
       WEB_ORIGIN: http://localhost:5173
     healthcheck:
@@ -12,9 +14,11 @@ services:
   web:
     image: node:22-alpine
     working_dir: /app
-    volumes: ["./frontend:/app"]
-    command: sh -c "npm install && npm run dev"
-    ports: ["5173:5173"]
+    volumes:
+      - ../../frontend:/app
+      - /app/node_modules
+    command: sh -c "npm ci && npm run dev -- --host 0.0.0.0"
+    ports: ["127.0.0.1:5173:5173"]
     environment:
       VITE_API_URL: http://localhost:8000
     depends_on: [api]
