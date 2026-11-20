@@ -1,4 +1,5 @@
 """G1 orchestration using the single Agents SDK tool loop."""
+import ast
 import asyncio
 import json
 import logging
@@ -29,16 +30,51 @@ class AssistantError(AgentsException):
 
 
 def require_prose(message):
-    if re.search(r"脚本|命令|\b(script|shell|command|powershell|bash)\b", message, re.IGNORECASE):
+    execution = re.search(
+        r"^(?:请|帮我|请帮我)?(?:运行|执行).*(?:脚本|命令|代码)"
+        r"|^(?:please\s+)?(?:run|execute)\b.*\b(?:script|shell|command|code)\b",
+        message.strip(), re.IGNORECASE)
+    if execution:
         raise AssistantError("unsupported_intent", "不执行任意脚本或命令；请从课程选择登记算法。")
-    # Deliberately bounded single-line prose, not a detector for arbitrary source code.
-    prose = re.fullmatch(r"[a-zA-Z0-9\u3400-\u9fff ,.!?，。！？、+*%=<>≤≥≠×÷−-]+", message)
-    syntax = re.search(
-        r"\b(import|def|lambda|const|let|var|function|async|await|exec|eval|throw|return)\b"
-        r"|^\s*(if|for|while|class|try|raise|pass|break|continue|yield)\b"
-        r"|[a-zA-Z0-9]\.[a-zA-Z]|(?<![<>=!])=(?!=)", message)
-    if not prose or syntax:
-        raise AssistantError("local_review_required", "请用单行自然语言描述问题；源码、差异或含代码的说明请使用本地评审入口。")
+    if contains_source(message):
+        raise AssistantError("local_review_required", "源码、差异或含代码的说明请使用本地评审入口。")
+
+
+def contains_source(message):
+    # Recognize pasted material; this heuristic does not authorize external disclosure.
+    if "```" in message or "~~~" in message:
+        return True
+    for line in message.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if re.search(r"^(?:diff --git |@@ |--- |\+\+\+ )", line):
+            return True
+        # Declarations and incomplete statements can follow an explanatory prefix.
+        if re.search(
+            r"\b(?:import\s+[\w.]+|from\s+[\w.]+\s+import\s+\w+)\s*$"
+            r"|\bdef\s+\w+\s*\("
+            r"|\bfunction\s+\w+\s*\([^)]*(?:$|\)\s*\{)"
+            r"|\b(?:const|let|var)\s+\w+\s*="
+            r"|(?:^|[：:])\s*(?:if\s+\w+|for\s+\w+\s+in\s+\w+|throw\s+\w+)\s*:?$"
+            r"|^\w+(?:\.\w+)*\([^)]*$", line):
+            return True
+        try:
+            tree = ast.parse(line)
+        except SyntaxError:
+            try:
+                tree = ast.parse(re.split(r"[：:]", line, maxsplit=1)[-1].strip())
+            except SyntaxError:
+                continue
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and isinstance(node.value, (ast.BinOp, ast.UnaryOp, ast.Constant)):
+                if all(isinstance(part, (ast.BinOp, ast.UnaryOp, ast.Name, ast.Load, ast.operator, ast.unaryop))
+                       or isinstance(part, ast.Constant) and type(part.value) in (int, float)
+                       for part in ast.walk(node.value)):
+                    continue
+            if not isinstance(node, ast.Expr) or isinstance(node.value, ast.Call):
+                return True
+    return False
 
 
 def validate(params):

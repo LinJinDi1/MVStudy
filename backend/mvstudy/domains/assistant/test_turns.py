@@ -278,6 +278,7 @@ def test_model_cannot_supply_an_unselected_image_or_other_objects():
     "const token = privateValue;", "请看看 function secret() {", "private.main()",
     "请评审：if x", "--- private.py\n+++ changed.py", "print('secret'",
     "private = secret", "for item in secrets", "if private", "throw secret", "return secret",
+    "请评审：private.main()", "Please review:\nconst secret = 1;",
 ])
 @pytest.mark.parametrize("intent", [None, "question"])
 def test_code_like_messages_stay_local_before_model_or_question_tool(message, intent):
@@ -295,16 +296,25 @@ def test_code_like_messages_stay_local_before_model_or_question_tool(message, in
 @pytest.mark.parametrize("question", [
     "为什么双阈值比单阈值好？", "Why does Canny use two thresholds?",
     "low < high", "1 + 1", "阈值 x > 50 时会怎样？",
+    "What is the Gaussian function?", "Explain Canny (edge detection)",
+    "What is a shell command?", "第一问：为什么用双阈值？\n\n第二问：阈值如何选择？",
+    '解释一下“脚本”和“命令”的区别。', 'What does "return" mean in Python?',
+    "如何执行脚本？请解释原理，不要运行。", "Explain the function f(x) and its derivative.",
+    "比较阈值：x > 50 与 x < 150", "为什么 Python 的 import 会加载模块？",
+    "(x + y) / 2", "y = x + 1", "x = 50",
 ])
-def test_prose_and_formula_questions_keep_meaning_without_disclosing_context(question):
+@pytest.mark.parametrize("explicit", [False, True])
+def test_prose_and_formula_questions_keep_meaning_without_disclosing_context(question, explicit):
     model = FixedModel("ask_course", {"question": "model rewrite"})
     client, calls, actor = setup(model)
     body = {"message": question, "case_id": "private-case", "version": 1,
             "file_id": "private-image", "params": {"source": "private_module.main()"}}
+    if explicit:
+        body["intent"] = "question"
     response = client.post("/api/assistant/turns", json=body)
     assert response.status_code == 200
     assert calls == [("ask_course", actor, {"question": question, "case_id": "private-case", "version": 1, "file_id": "private-image"})]
-    assert model.inputs == [[{"role": "user", "content": question}]]
+    assert model.inputs == ([] if explicit else [[{"role": "user", "content": question}]])
 
 
 @pytest.mark.parametrize("message", ["执行脚本", "运行任意脚本", "run this script", "execute shell command"])
