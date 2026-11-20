@@ -184,4 +184,3 @@ def create_assistant_blueprint(actor_provider, tools, model=None, *, timeout_s=3
             raise AssistantError("service_unavailable", "工具或模型暂不可用，请保留输入。", 503) from None
 
     return api
-
