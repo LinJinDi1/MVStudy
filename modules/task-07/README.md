@@ -22,4 +22,4 @@ docker compose up --build
 
 - `backend/review_service.py` 提供 `review_source(source, language)`，返回带行号的静态检查建议。该函数依赖 Python 标准库和 Pyflakes，可由团队后端直接调用。
 - `backend/app.py` 保留演示用的 Flask 接口，负责读取请求、调用检查函数和返回结果。
-- 等团队确定后端目录、登录权限和作业提交接口后，再接入教师页面及独立助教入口。现阶段为本地演示，尚未接入统一鉴权或作业存储。
+- 07 号票继续在此原型完善规则。[23 号票](../../.scratch/mvstudy/issues/23-private-review.md)将规则接入正式 `review` 域，并保留本地演示入口；正式目录和接口所有者见[平台骨架](../../README.md#九个业务域)。
