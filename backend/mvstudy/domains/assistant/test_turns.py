@@ -76,7 +76,7 @@ def test_explicit_run_asks_for_image_then_submits_once_without_model():
 ])
 def test_remaining_tools_preserve_contracts(intent, name, params, result):
     client, calls, actor = setup(FixedModel(name, params), results={name: result})
-    response = client.post("/api/assistant/turns", json={"message": "查询结果"})
+    response = client.post("/api/assistant/turns", json={"message": "查询结果", **params})
     assert response.status_code == 200
     assert response.json == {"intent": intent, "state": "completed", "result": result}
     assert calls == [(name, actor, params)]
@@ -121,7 +121,7 @@ def test_unauthenticated_request_is_rejected_before_processing():
 ])
 def test_model_tool_calls_are_untrusted(name, arguments, code):
     client, calls, _ = setup(FixedModel(name, arguments))
-    response = client.post("/api/assistant/turns", json={"message": "执行脚本"})
+    response = client.post("/api/assistant/turns", json={"message": "查询结果"})
     assert response.status_code == 400
     assert response.json["error"]["code"] == code
     assert calls == []
@@ -144,7 +144,7 @@ class RepeatingModel(FixedModel):
 def test_duplicate_model_run_calls_submit_only_once():
     params = {"case_id": "edge-case", "version": 1, "algorithm_id": "edge", "algorithm_version": "1", "input_file_id": "img1", "params": {}}
     client, calls, actor = setup(RepeatingModel("run_algorithm", params), results={"run_algorithm": {"run_id": "once", "status": "queued"}})
-    response = client.post("/api/assistant/turns", json={"message": "运行边缘检测"})
+    response = client.post("/api/assistant/turns", json={"message": "运行边缘检测", **params})
     assert response.status_code == 200
     assert response.json == {"intent": "run", "state": "submitted", "result": {"run_id": "once", "status": "queued"}}
     assert calls == [("run_algorithm", actor, params)]
@@ -182,7 +182,7 @@ def test_provider_failure_is_terminal_without_leaking_internal_error(error, stat
     app = Flask("failed")
     app.config["TESTING"] = True
     app.register_blueprint(create_assistant_blueprint(lambda: {"user_id": "u1"}, {"get_run": failed}, FixedModel("get_run", {"run_id": "r1"})))
-    response = app.test_client().post("/api/assistant/turns", json={"message": "进度"})
+    response = app.test_client().post("/api/assistant/turns", json={"message": "进度", "run_id": "r1"})
     assert response.status_code == status
     assert response.json["error"]["code"] == code
     assert "secret" not in response.text
@@ -209,7 +209,7 @@ class TextModel(FixedModel):
 def test_model_text_cannot_fabricate_a_tool_result():
     model = TextModel("", {})
     client, calls, _ = setup(model)
-    response = client.post("/api/assistant/turns", json={"message": "运行脚本"})
+    response = client.post("/api/assistant/turns", json={"message": "运行边缘检测"})
     assert response.status_code == 400
     assert response.json["error"]["code"] == "unsupported_intent"
     assert calls == []
@@ -228,7 +228,7 @@ def test_run_completion_is_logged_once_without_source_or_parameters(caplog):
     params = {"case_id": "edge-case", "version": 1, "algorithm_id": "edge", "algorithm_version": "1", "input_file_id": "img1", "params": {}}
     client, _, _ = setup(RepeatingModel("run_algorithm", params), results={"run_algorithm": {"run_id": "r-logged", "status": "queued"}})
     with caplog.at_level("INFO", logger="mvstudy.domains.assistant"):
-        response = client.post("/api/assistant/turns", json={"message": "运行边缘检测"})
+        response = client.post("/api/assistant/turns", json={"message": "运行边缘检测", **params})
     assert response.status_code == 200
     records = [record for record in caplog.records if record.msg == "tool.finished"]
     assert len(records) == 1
@@ -239,7 +239,7 @@ def test_run_completion_is_logged_once_without_source_or_parameters(caplog):
 def test_natural_run_with_missing_selection_asks_without_invoking_provider():
     model = FixedModel("run_algorithm", {"case_id": "edge-case", "version": 1, "algorithm_id": "edge", "algorithm_version": "1", "params": {}})
     client, calls, _ = setup(model)
-    response = client.post("/api/assistant/turns", json={"message": "运行边缘检测"})
+    response = client.post("/api/assistant/turns", json={"message": "运行边缘检测", "case_id": "edge-case", "version": 1, "algorithm_id": "edge", "algorithm_version": "1", "params": {}})
     assert response.status_code == 200
     assert response.json["state"] == "needs_input"
     assert response.json["missing"] == ["input_file_id"]
@@ -260,3 +260,125 @@ def test_server_resolves_current_identity_on_every_request():
     actor = None
     assert client.post("/api/assistant/turns", json=body).status_code == 401
     assert seen == [{"user_id": "u1"}]
+
+
+def test_model_cannot_supply_an_unselected_image_or_other_objects():
+    guessed = {"case_id": "c1", "version": 1, "algorithm_id": "edge", "algorithm_version": "1",
+               "input_file_id": "invented", "params": {}}
+    client, calls, _ = setup(FixedModel("run_algorithm", guessed), results={"run_algorithm": {"run_id": "wrong"}})
+    response = client.post("/api/assistant/turns", json={"message": "运行边缘检测", **{k: v for k, v in guessed.items() if k != "input_file_id"}})
+    assert response.status_code == 200
+    assert response.json == {"intent": "run", "state": "needs_input", "missing": ["input_file_id"], "message": "请选择图片"}
+    assert calls == []
+
+
+@pytest.mark.parametrize("message", [
+    "请评审：\nimport private_module\nprivate_module.main()",
+    "def unfinished(", "请解释 import private_module", "import secret",
+    "const token = privateValue;", "请看看 function secret() {", "private.main()",
+    "请评审：if x", "--- private.py\n+++ changed.py", "print('secret'",
+    "private = secret", "for item in secrets", "if private", "throw secret", "return secret",
+])
+@pytest.mark.parametrize("intent", [None, "question"])
+def test_code_like_messages_stay_local_before_model_or_question_tool(message, intent):
+    model = FixedModel("ask_course", {"question": "clean", "case_id": "c1", "version": 1})
+    client, calls, _ = setup(model)
+    body = {"message": message, "case_id": "c1", "version": 1}
+    if intent:
+        body["intent"] = intent
+    response = client.post("/api/assistant/turns", json=body)
+    assert response.status_code == 400
+    assert response.json["error"]["code"] == "local_review_required"
+    assert calls == model.inputs == []
+
+
+@pytest.mark.parametrize("question", [
+    "为什么双阈值比单阈值好？", "Why does Canny use two thresholds?",
+    "low < high", "1 + 1", "阈值 x > 50 时会怎样？",
+])
+def test_prose_and_formula_questions_keep_meaning_without_disclosing_context(question):
+    model = FixedModel("ask_course", {"question": "model rewrite"})
+    client, calls, actor = setup(model)
+    body = {"message": question, "case_id": "private-case", "version": 1,
+            "file_id": "private-image", "params": {"source": "private_module.main()"}}
+    response = client.post("/api/assistant/turns", json=body)
+    assert response.status_code == 200
+    assert calls == [("ask_course", actor, {"question": question, "case_id": "private-case", "version": 1, "file_id": "private-image"})]
+    assert model.inputs == [[{"role": "user", "content": question}]]
+
+
+@pytest.mark.parametrize("message", ["执行脚本", "运行任意脚本", "run this script", "execute shell command"])
+@pytest.mark.parametrize("explicit", [False, True])
+def test_script_requests_cannot_be_reinterpreted_as_registered_runs(message, explicit):
+    params = {"case_id": "c1", "version": 1, "algorithm_id": "edge", "algorithm_version": "1", "input_file_id": "img1", "params": {}}
+    model = FixedModel("run_algorithm", params)
+    client, calls, _ = setup(model, results={"run_algorithm": {"run_id": "wrong"}})
+    body = {"message": message, **params}
+    if explicit:
+        body["intent"] = "run"
+    response = client.post("/api/assistant/turns", json=body)
+    assert response.status_code == 400
+    assert response.json["error"]["code"] == "unsupported_intent"
+    assert calls == model.inputs == []
+
+
+@pytest.mark.parametrize("message,intent,name,params", [
+    ("刚才交的那个算完了吗", "run_status", "get_run", {"run_id": "r1"}),
+    ("Show class progress", "analytics", "class_summary", {"class_id": "c1", "from": "2026-11-01", "to": "2026-11-20"}),
+])
+def test_free_text_intent_keeps_the_whole_request_for_model(message, intent, name, params):
+    model = FixedModel(name, {})
+    client, calls, actor = setup(model, results={name: {"status": "completed"}})
+    response = client.post("/api/assistant/turns", json={"message": message, **params})
+    assert response.status_code == 200
+    assert response.json["intent"] == intent
+    assert calls == [(name, actor, params)]
+    assert model.inputs == [[{"role": "user", "content": message}]]
+
+
+class MixedModel(FixedModel):
+    reverse = False
+
+    async def get_response(self, *args, **kwargs):
+        response = await super().get_response(*args, **kwargs)
+        response.output.append(ResponseFunctionToolCall(
+            id="fc2", call_id="call2", type="function_call", name="run_algorithm",
+            arguments=json.dumps({"case_id": "c1", "version": 1, "algorithm_id": "edge",
+                                  "algorithm_version": "1", "input_file_id": "img1", "params": {}}),
+        ))
+        if self.reverse:
+            response.output.reverse()
+        return response
+
+
+@pytest.mark.parametrize("name,arguments", [
+    ("ask_course", {"question": "原理", "case_id": "c1", "version": 1}),
+    ("get_run", {"run_id": "r1"}),
+    ("run_algorithm", {"input_file_id": "different"}),
+    ("execute_script", {}),
+])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_conflicting_batch_is_rejected_before_any_provider(name, arguments, reverse):
+    model = MixedModel(name, arguments)
+    model.reverse = reverse
+    client, calls, _ = setup(model, results={name: {"status": "completed"}, "run_algorithm": {"run_id": "hidden"}})
+    response = client.post("/api/assistant/turns", json={"message": "运行边缘检测", "run_id": "r1",
+        "case_id": "c1", "version": 1, "algorithm_id": "edge", "algorithm_version": "1", "input_file_id": "img1", "params": {}})
+    assert response.status_code == 400
+    assert response.json["error"]["code"] == "unsupported_intent"
+    assert calls == []
+
+
+@pytest.mark.parametrize("name,intent,guesses,missing", [
+    ("get_run", "run_status", {"run_id": "invented"}, ["run_id"]),
+    ("review_submission", "review", {"submission_id": "invented", "file_id": "invented"}, ["submission_id", "file_id"]),
+    ("ask_course", "question", {"question": "invented", "case_id": "invented", "version": 1}, ["case_id", "version"]),
+])
+def test_model_object_guesses_are_not_user_selections(name, intent, guesses, missing):
+    client, calls, _ = setup(FixedModel(name, guesses), results={name: {"status": "wrong"}})
+    response = client.post("/api/assistant/turns", json={"message": "查询结果"})
+    assert response.status_code == 200
+    assert response.json["intent"] == intent
+    assert response.json["state"] == "needs_input"
+    assert response.json["missing"] == missing
+    assert calls == []

@@ -1,8 +1,8 @@
 """G1 orchestration using the single Agents SDK tool loop."""
-import ast
 import asyncio
 import json
 import logging
+import re
 
 from agents import Agent, FunctionTool, ModelSettings, RunConfig, Runner
 from flask import Blueprint, jsonify, request
@@ -28,17 +28,17 @@ class AssistantError(AgentsException):
         self.code, self.status = code, status
 
 
-def contains_source(message):
-    if not isinstance(message, str):
-        return False
-    if "```" in message or "~~~" in message:
-        return True
-    try:
-        tree = ast.parse(message)
-    except SyntaxError:
-        return False
-    return any(not isinstance(node, ast.Expr) or
-               not isinstance(node.value, (ast.Name, ast.Constant)) for node in tree.body)
+def require_prose(message):
+    if re.search(r"脚本|命令|\b(script|shell|command|powershell|bash)\b", message, re.IGNORECASE):
+        raise AssistantError("unsupported_intent", "不执行任意脚本或命令；请从课程选择登记算法。")
+    # Deliberately bounded single-line prose, not a detector for arbitrary source code.
+    prose = re.fullmatch(r"[a-zA-Z0-9\u3400-\u9fff ,.!?，。！？、+*%=<>≤≥≠×÷−-]+", message)
+    syntax = re.search(
+        r"\b(import|def|lambda|const|let|var|function|async|await|exec|eval|throw|return)\b"
+        r"|^\s*(if|for|while|class|try|raise|pass|break|continue|yield)\b"
+        r"|[a-zA-Z0-9]\.[a-zA-Z]|(?<![<>=!])=(?!=)", message)
+    if not prose or syntax:
+        raise AssistantError("local_review_required", "请用单行自然语言描述问题；源码、差异或含代码的说明请使用本地评审入口。")
 
 
 def validate(params):
@@ -68,7 +68,7 @@ def create_assistant_blueprint(actor_provider, tools, model=None, *, timeout_s=3
         body = request.get_json(silent=True)
         if not isinstance(body, dict):
             raise AssistantError("invalid_json", "请求内容必须是 JSON 对象。")
-        if {"source", "before", "after"} & body.keys() or contains_source(body.get("message")):
+        if {"source", "before", "after"} & body.keys():
             raise AssistantError("local_review_required", "粘贴源码及差异请使用本地评审入口。")
         allowed = {"message", "intent", "class_id", "file_id", "input_file_id", "algorithm_id", "algorithm_version", "params", "case_id", "version", "run_id", "submission_id", "from", "to"}
         if body.keys() - allowed:
@@ -78,10 +78,9 @@ def create_assistant_blueprint(actor_provider, tools, model=None, *, timeout_s=3
         validate({key: value for key, value in body.items() if key != "intent"})
         if "message" not in body:
             raise AssistantError("invalid_params", "请提供 message。")
+        require_prose(body["message"])
 
         async def run():
-            run_task = None
-
             async def call_provider(name, params):
                 status, run_id = "failed", None
                 try:
@@ -91,62 +90,53 @@ def create_assistant_blueprint(actor_provider, tools, model=None, *, timeout_s=3
                 finally:
                     logger.info("tool.finished", extra={"tool_name": name, "status": status, "run_id": run_id})
 
-            async def dispatch(intent, params):
-                nonlocal run_task
+            async def dispatch(intent):
                 name, fields = TOOLS[intent]
                 allowed_fields = set(fields + OPTIONAL.get(intent, ()))
-                if not isinstance(params, dict) or params.keys() - allowed_fields:
-                    raise AssistantError("invalid_params", "工具参数包含未知字段。")
-                validate(params)
-                params.update({key: body[key] for key in allowed_fields if key in body})
+                params = {key: body[key] for key in allowed_fields if key in body}
+                if intent == "question":
+                    params["question"] = body["message"]
                 missing = [key for key in fields if key not in params]
                 if missing:
                     return {"intent": intent, "state": "needs_input", "missing": missing,
-                            "message": "请补充：" + "、".join(missing)}
+                            "message": "请选择图片" if "input_file_id" in missing else "请补充：" + "、".join(missing)}
                 if name not in tools:
                     raise AssistantError("service_unavailable", "工具尚未接入。", 503)
-                if intent == "run":
-                    if run_task is None:
-                        run_task = asyncio.create_task(call_provider(name, params))
-                    result = await run_task
-                else:
-                    result = await call_provider(name, params)
+                result = await call_provider(name, params)
                 return {"intent": intent, "state": "submitted" if intent == "run" else "completed", "result": result}
 
             if "intent" in body:
-                intent = body["intent"]
-                fields = TOOLS[intent][1] + OPTIONAL.get(intent, ())
-                params = {key: body[key] for key in fields if key in body}
-                if intent == "question":
-                    params["question"] = body["message"]
-                return await dispatch(intent, params)
+                return await dispatch(body["intent"])
             if model is None:
                 raise AssistantError("service_unavailable", "模型尚未配置。", 503)
             sdk_tools = []
-            tool_results = []
+            selections = []
             for intent, (name, fields) in TOOLS.items():
                 async def invoke(_context, arguments, _intent=intent):
                     try:
                         params = json.loads(arguments)
                     except (TypeError, ValueError):
                         raise AssistantError("invalid_params", "工具参数必须是 JSON 对象。") from None
-                    output = await dispatch(_intent, params)
-                    tool_results.append(output)
-                    return json.dumps(output)
+                    allowed_fields = set(TOOLS[_intent][1] + OPTIONAL.get(_intent, ()))
+                    if not isinstance(params, dict) or params.keys() - allowed_fields:
+                        raise AssistantError("invalid_params", "工具参数包含未知字段。")
+                    validate(params)
+                    selections.append((_intent, params))
+                    return "Selection recorded; no provider has been called."
                 schema = {"type": "object", "properties": {
                     key: {"type": "integer" if key == "version" else "object" if key == "params" else "string"} for key in fields + OPTIONAL.get(intent, ())
                 }, "required": [], "additionalProperties": False}
                 sdk_tools.append(FunctionTool(name=name, description=intent,
                                               params_json_schema=schema, on_invoke_tool=invoke, strict_json_schema=False))
             agent = Agent(name="Teaching assistant", model=model, tools=sdk_tools,
-                          instructions="Select the teaching tool for the request. Never execute scripts.",
+                          instructions="Select exactly one teaching tool with empty arguments. The server supplies user selections. Never execute scripts.",
                           model_settings=ModelSettings(parallel_tool_calls=False),
                           tool_use_behavior="stop_on_first_tool")
-            await Runner.run(agent, json.dumps(body), max_turns=2,
+            await Runner.run(agent, body["message"], max_turns=2,
                                       run_config=RunConfig(tracing_disabled=True))
-            if not tool_results:
+            if not selections or any(selection != selections[0] for selection in selections):
                 raise AssistantError("unsupported_intent", "请选择问答、运行、进度、评审或班级统计。")
-            return tool_results[0]
+            return await dispatch(selections[0][0])
 
         try:
             return jsonify(asyncio.run(asyncio.wait_for(run(), timeout=timeout_s)))
