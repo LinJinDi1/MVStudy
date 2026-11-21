@@ -8,9 +8,14 @@ from typing import Any
 from pyflakes.checker import Checker
 from pyflakes.messages import UndefinedName
 
+RULE_VERSION = "1.0"
 
-def _finding(line: int, severity: str, title: str, detail: str, rule: str, suggestion: str) -> dict[str, Any]:
-    return {"id": str(uuid.uuid4()), "rule": rule, "severity": severity, "file": "submission",
+
+def _finding(
+    line: int, severity: str, title: str, detail: str, rule: str, suggestion: str,
+    *, category: str = "potential_correctness", filename: str = "submission.py",
+) -> dict[str, Any]:
+    return {"id": str(uuid.uuid4()), "rule": rule, "category": category, "severity": severity, "file": filename,
             "line_start": line, "line_end": line, "title": title, "description": detail,
             "suggestion": suggestion, "confidence": 0.65}
 
@@ -41,6 +46,14 @@ def _check_python(source: str) -> list[dict[str, Any]]:
         )]
 
     findings = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ExceptHandler) and node.type is None:
+            findings.append(_finding(
+                node.lineno, "warning", "捕获范围过宽",
+                "裸 except 会捕获所有异常，可能掩盖真正的错误。",
+                "python/bare-except", "根据预期错误指定异常类型，例如 except ValueError:。",
+            ))
+
     for message in Checker(tree, filename="submission.py").messages:
         if isinstance(message, UndefinedName):
             name = message.message_args[0]
@@ -61,5 +74,6 @@ def review_source(source: str, language: str) -> list[dict[str, Any]]:
             findings.append(_finding(
                 number, "info", "行长度较长", "该行超过120个字符。",
                 "style/line-length", "可考虑拆分这行以提升可读性。",
+                category="style", filename="submission.py" if language == "python" else "submission",
             ))
     return findings
