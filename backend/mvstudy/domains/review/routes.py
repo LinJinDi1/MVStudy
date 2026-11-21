@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 from flask import Blueprint, current_app, jsonify, request
 
-from .review_service import review_source
+from .review_service import RULE_VERSION, review_source
 
 review_api = Blueprint("review_demo", __name__, url_prefix="/api")
 
@@ -35,7 +35,7 @@ def create_review():
     findings = review_source(source, language)
     review_id = str(uuid.uuid4())
     result = {"review_id": review_id, "submission_id": body.get("submission_id"), "status": "completed",
-              "language": language, "dimensions": ["static_correctness_hints", "style"], "findings": findings,
+              "language": language, "rule_version": RULE_VERSION, "dimensions": ["static_correctness_hints", "style"], "findings": findings,
               "summary": f"静态检查完成，发现 {len(findings)} 项可供参考的建议。",
               "is_ai_assisted": False, "execution_performed": False,
               "created_at": datetime.now(timezone.utc).isoformat()}
