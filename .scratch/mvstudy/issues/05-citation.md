@@ -6,21 +6,7 @@
 
 **Blocked by:** None — can start immediately
 
-**Status:** done
+**Status:** ready-for-agent
 
-**Implementation commit:** 90da4c8
-
-- [x] 讲义定位到章节、代码到函数、notebook 到单元格；习题与答案分别授权。
-- [x] 同一题教师可找到教师材料，学生的候选集合只含可见材料；无命中返回缺依据。
-
-**Test command & result:**
-```
-PYTHONPATH=backend .venv/Scripts/python.exe -m unittest mvstudy.domains.knowledge.test_citation -v
-Ran 9 tests ... OK
-
-PYTHONPATH=backend .venv/Scripts/python.exe -m unittest mvstudy.domains.knowledge.test_citation mvstudy.domains.review.test_static_review
-Ran 12 tests ... OK
-
-python tools/check_layout.py        → 项目结构检查通过
-pyflakes backend/mvstudy/domains/knowledge/  → 无告警
-```
+- [ ] 讲义定位到章节、代码到函数、notebook 到单元格；习题与答案分别授权。
+- [ ] 同一题教师可找到教师材料，学生的候选集合只含可见材料；无命中返回缺依据。
